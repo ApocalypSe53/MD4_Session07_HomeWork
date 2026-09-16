@@ -6,7 +6,7 @@
 |---|---|
 | `medical-config-repo/` | Kho Git cục bộ (không push lên GitHub) chứa `patient-service.properties` - nguồn cấu hình tập trung. |
 | `config-server/` | **Bài tập 1** - Spring Boot app dùng `spring-cloud-config-server`, đọc cấu hình từ `medical-config-repo`. |
-| `patient-service/` | **Bài tập 2** - Spring Boot app dùng `spring-cloud-starter-config`, nạp toàn bộ cấu hình (bao gồm PostgreSQL) từ Config Server lúc khởi động thông qua `spring.config.import`. |
+| `patient-service/` | **Bài tập 2 & 3** - Spring Boot app dùng `spring-cloud-starter-config`, nạp toàn bộ cấu hình (DB, port...) từ Config Server lúc khởi động thông qua `spring.config.import`. Bài 3 bổ sung 2 profile `dev` (MySQL) và `prod` (PostgreSQL). |
 
 `medical-config-repo/` chỉ tồn tại cục bộ vì nó đóng vai trò "kho cấu hình từ xa" mà Config Server trỏ tới qua `file://...` - trong thực tế đây thường là một Git repository riêng biệt, không nằm trong mã nguồn ứng dụng.
 
@@ -118,4 +118,90 @@ public static void main(String[] args) {
     TimeZone.setDefault(TimeZone.getTimeZone("Asia/Ho_Chi_Minh"));
     SpringApplication.run(PatientServiceApplication.class, args);
 }
+```
+
+## 4. Bài tập 3 - Quản lý cấu hình đa môi trường (Profiles)
+
+**`patient-service/pom.xml`**: thêm dependency `mysql-connector-j` (bên cạnh `postgresql`
+đã có) để cùng một mã nguồn có thể chạy với cả 2 hệ CSDL tuỳ theo profile.
+
+**`patient-service/src/main/resources/application.properties`** (local - không đổi so
+với bài 2, chỉ giữ cấu hình trỏ tới Config Server):
+
+```properties
+spring.application.name=patient-service
+spring.config.import=configserver:http://localhost:8888
+```
+
+**`medical-config-repo/patient-service-dev.properties`** (Dev - MySQL, cổng 8081):
+
+```properties
+server.port=8081
+
+spring.datasource.url=jdbc:mysql://localhost:3308/patient_db_dev
+spring.datasource.username=root
+spring.datasource.password=root
+spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQLDialect
+```
+
+**`medical-config-repo/patient-service-prod.properties`** (Prod - PostgreSQL, cổng 8082):
+
+```properties
+server.port=8082
+
+spring.datasource.url=jdbc:postgresql://localhost:5433/patient_db
+spring.datasource.username=postgres
+spring.datasource.password=postgres
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+```
+
+> **Lưu ý cổng DB dùng để kiểm thử**: máy kiểm thử đã có sẵn MySQL native (cổng 3306)
+> và PostgreSQL native (cổng 5432), nên khi test dùng 2 container Docker riêng ở cổng
+> **3308** (MySQL) và **5433** (PostgreSQL) để không đụng vào database thật trên máy.
+> Đổi lại thành cổng/username/password thật của bạn nếu cần.
+
+Sau khi tạo 2 file, nhớ `git add .` + `git commit` trong `medical-config-repo` để Config
+Server nhận diện (Config Server tự `git pull` mỗi lần có request nên không cần khởi động
+lại).
+
+Kiểm tra Config Server đã nhận diện đúng profile:
+
+- http://localhost:8888/patient-service/dev → property source đầu tiên là
+  `patient-service-dev.properties` (ghi đè `server.port=8081` và toàn bộ `spring.datasource.*`
+  sang MySQL), sau đó vẫn liệt kê `patient-service.properties` (base) với độ ưu tiên thấp hơn.
+- http://localhost:8888/patient-service/prod → tương tự nhưng với `patient-service-prod.properties`
+  (`server.port=8082`, PostgreSQL) ở độ ưu tiên cao nhất.
+
+Chạy patient-service với từng profile (tương đương "Active profiles" trong IntelliJ Run
+Configuration):
+
+```bash
+./mvnw spring-boot:run -Dspring-boot.run.profiles=dev   # port 8081, MySQL
+./mvnw spring-boot:run -Dspring-boot.run.profiles=prod  # port 8082, PostgreSQL
+```
+
+Log đã kiểm thử thực tế:
+
+```
+# --spring.profiles.active=dev
+PatientServiceApplication : The following 1 profile is active: "dev"
+TomcatWebServer           : Tomcat initialized with port 8081 (http)
+HikariPool                : Added connection com.mysql.cj.jdbc.ConnectionImpl@...
+HikariDataSource           : HikariPool-1 - Start completed.
+PatientServiceApplication : Started PatientServiceApplication in 8.38 seconds
+
+# --spring.profiles.active=prod
+PatientServiceApplication : The following 1 profile is active: "prod"
+TomcatWebServer           : Tomcat initialized with port 8082 (http)
+HikariPool                : Added connection org.postgresql.jdbc.PgConnection@...
+HikariDataSource           : HikariPool-1 - Start completed.
+PatientServiceApplication : Started PatientServiceApplication in 6.392 seconds
 ```
