@@ -205,3 +205,55 @@ HikariPool                : Added connection org.postgresql.jdbc.PgConnection@..
 HikariDataSource           : HikariPool-1 - Start completed.
 PatientServiceApplication : Started PatientServiceApplication in 6.392 seconds
 ```
+
+## 5. Bài tập 4 - Tự động cập nhật cấu hình với `@RefreshScope`
+
+**`patient-service/pom.xml`**: thêm dependency `spring-boot-starter-actuator`.
+
+**`patient-service/src/main/resources/application.properties`** (local): expose endpoint
+`refresh` của Actuator (mặc định Spring Boot chỉ public `health`):
+
+```properties
+spring.application.name=patient-service
+spring.config.import=configserver:http://localhost:8888
+
+management.endpoints.web.exposure.include=refresh
+```
+
+**`medical-config-repo/patient-service.properties`**: thêm
+
+```properties
+app.welcome=Chao mung toi BV RikkeiAcademy
+```
+
+**`patient-service/src/main/java/.../WelcomeController.java`**:
+
+```java
+@RestController
+@RefreshScope
+public class WelcomeController {
+
+    @Value("${app.welcome}")
+    private String welcomeMessage;
+
+    @GetMapping("/welcome")
+    public String welcome() {
+        return welcomeMessage;
+    }
+}
+```
+
+Quy trình đã kiểm thử thực tế, đúng từng bước:
+
+1. Chạy `config-server` rồi `patient-service` (mặc định, cổng 8081).
+2. `GET http://localhost:8081/welcome` → `Chao mung toi BV RikkeiAcademy`.
+3. Sửa `app.welcome=Chao mung toi BV RikkeiEducation` trong `medical-config-repo/patient-service.properties`,
+   `git add` + `git commit`.
+4. `GET /welcome` lúc này **vẫn trả về giá trị cũ** (đúng như kỳ vọng - bean `@RefreshScope`
+   chỉ tạo lại khi có sự kiện refresh, không tự động poll Git liên tục).
+5. `POST http://localhost:8081/actuator/refresh` → trả về danh sách property đã đổi:
+   `["config.client.version","app.welcome"]`.
+6. `GET /welcome` → `Chao mung toi BV RikkeiEducation` - **đã đổi ngay lập tức**.
+7. Xác nhận ứng dụng **không restart**: cùng PID và cùng `CreationDate` của tiến trình
+   Java trước/sau bước refresh (`ProcessId 25548`, `CreationDate 9/16/2026 12:13:19 PM`
+   ở cả hai lần kiểm tra).
