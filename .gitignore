@@ -1,0 +1,10 @@
+# Local Git-backed config repository (kept local per exercise instructions,
+# not part of the pushed source code)
+medical-config-repo/
+
+# IDE / tooling artifacts not related to this exercise
+.claude/
+.github/modernize/
+
+# Build output (also covered by config-server/.gitignore)
+config-server/target/
